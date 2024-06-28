@@ -3,7 +3,7 @@ from llama_index.core import VectorStoreIndex
 from llama_index.core import SimpleDirectoryReader
 
 # Set the OpenAI API key
-os.environ["OPENAI_API_KEY"] = "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"
+os.environ["OPENAI_API_KEY"] = "OPENAI_KEY"
 
 
 def generate_response():
