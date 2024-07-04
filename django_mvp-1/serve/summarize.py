@@ -5,10 +5,10 @@ from dotenv import load_dotenv
 
 # ---------Uncomment the below portion of the code to access your API-KEY from the .env folder------
 
-# load_dotenv()
-# OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-# # Set the OpenAI API key
-# os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# Set the OpenAI API key
+os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
 
 def generate_response():
