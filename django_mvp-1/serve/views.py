@@ -6,7 +6,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from .summarize import generate_response  # Import your LLM function
 
-
 class QueryView(APIView):
     def get(self, request, format=None):
         # query = "Give me a short summary of the document"
