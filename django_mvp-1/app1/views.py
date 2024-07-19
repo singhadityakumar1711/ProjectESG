@@ -4,6 +4,74 @@ from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 import json
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
+from llama_index.core.query_engine import RetrieverQueryEngine
+# from pinecone import Pinecone, ServerlessSpec
+from llama_index.core import (
+    VectorStoreIndex,
+    SimpleDirectoryReader,
+    StorageContext,
+)
+from pathlib import Path
+from llama_index.core import VectorStoreIndex
+from llama_index.core.retrievers import VectorIndexRetriever
+from llama_index.core import download_loader
+from llama_index.vector_stores.pinecone import PineconeVectorStore
+import os
+from getpass import getpass
+import re
+
+# from llama_index.node_parser import SemanticSplitterNodeParser
+from llama_index.embeddings.openai import OpenAIEmbedding
+
+# from llama_index.ingestion import IngestionPipeline
+from llama_index.core import Document
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.extractors import TitleExtractor
+from llama_index.core.ingestion import IngestionPipeline, IngestionCache
+from pinecone.grpc import PineconeGRPC
+from pinecone import ServerlessSpec
+
+PDFReader = download_loader("PDFReader")
+loader = PDFReader()
+pinecone_api_key = os.getenv("PINECONE_API_KEY")
+openai_api_key = os.getenv("OPENAI_API_KEY")
+embed_model = OpenAIEmbedding(api_key=openai_api_key)
+
+
+def clean_up_text(content: str) -> str:
+    """
+    Remove unwanted characters and patterns in text input.
+
+    :param content: Text input.
+
+    :return: Cleaned version of original text input.
+    """
+
+    # Fix hyphenated words broken by newline
+    content = re.sub(r"(\w+)-\n(\w+)", r"\1\2", content)
+
+    # Remove specific unwanted patterns and characters
+    unwanted_patterns = [
+        "\\n",
+        "  —",
+        "——————————",
+        "—————————",
+        "—————",
+        r"\\u[\dA-Fa-f]{4}",
+        r"\uf075",
+        r"\uf0b7",
+    ]
+    for pattern in unwanted_patterns:
+        content = re.sub(pattern, "", content)
+
+    # Fix improperly spaced hyphenated words and normalize whitespace
+    content = re.sub(r"(\w)\s*-\s*(\w)", r"\1-\2", content)
+    content = re.sub(r"\s+", " ", content)
+
+    return content
+
+
 
 
 prompts = [
@@ -35,58 +103,6 @@ prompts = [
 ]
 
 
-@csrf_exempt  # Disable CSRF protection for this view (not recommended for production)
-def upload_pdf_app1(request):
-    if (
-        request.method == "POST"
-        and "pdf_file" in request.FILES
-        and "pdf_id" in request.POST
-    ):
-        pdf_file = request.FILES["pdf_file"]
-        pdf_id = request.POST["pdf_id"]
-
-        # Define the path to the public directory
-        public_dir = os.path.join(settings.BASE_DIR, "public\\app1")
-
-        # Create the directory if it doesn't exist
-        if not os.path.exists(public_dir):
-            os.makedirs(public_dir)
-
-        # Define the file path
-        file_path = os.path.join(public_dir, pdf_file.name)
-
-        # Save the file
-        with open(file_path, "wb+") as destination:
-            for chunk in pdf_file.chunks():
-                destination.write(chunk)
-
-        # Construct the URL
-        file_url = request.build_absolute_uri(f"/public/app1/{pdf_file.name}")
-
-        mapping_file_path = os.path.join(
-            settings.BASE_DIR, "public\\app1", "pdf_mappings_app1.json"
-        )
-        if os.path.exists(mapping_file_path):
-            with open(mapping_file_path, "r") as mapping_file:
-                pdf_mappings = json.load(mapping_file)
-        else:
-            pdf_mappings = {}
-
-        pdf_mappings[pdf_id] = file_path
-
-        with open(mapping_file_path, "w") as mapping_file:
-            json.dump(pdf_mappings, mapping_file, indent=4)
-
-        # Return the response
-        return JsonResponse(
-            {
-                "pdf_id": pdf_id,
-                "file_url": file_url,
-            }
-        )
-
-    return JsonResponse({"error": "Invalid request"}, status=400)
-
 
 def get_answer(query, index):
     """Fetches the answer to the query from the indexed PDF using LlamaIndex."""
@@ -106,10 +122,11 @@ def summarize_main(temp_dir):
 
     if temp_dir is not None:
         # Create a SimpleDirectoryReader instance
-        reader = SimpleDirectoryReader(temp_dir)
+        # reader = SimpleDirectoryReader(temp_dir)
 
         # Load data from the reader
-        documents = reader.load_data()
+        # documents = reader.load_data()
+        documents = loader.load_data(file=temp_dir)
 
         # Predefined queries (modify as needed)
         queries = [
@@ -152,18 +169,237 @@ def ai_summarized(request):
     if request.method == "POST" and "pdf_id" in request.POST:
         pdf_id = request.POST["pdf_id"]
         mapping_file_path = os.path.join(
-            settings.BASE_DIR, "public\\app1", "pdf_mappings_app1.json"
+            settings.BASE_DIR, "public\\app", "pdf_mappings.json"
         )
         with open(mapping_file_path, "r") as mapping_file:
             data = json.load(mapping_file)
             uploaded_file = data.get(pdf_id, None)
             return JsonResponse(
-                summarize_main(os.path.dirname(uploaded_file)), safe=False
+                summarize_main(uploaded_file), safe=False
+            )
+
+
+
+def assessment_main(temp_dir):
+    if temp_dir is not None:
+        
+        documents = loader.load_data(file=temp_dir)
+        index = VectorStoreIndex.from_documents(documents)
+        loop = 0
+        comment = []
+        for prompt in prompts:
+            score = get_answer(prompts[loop], index)
+            if score == "1":
+                comment.append("Not satisfied")
+            elif score == "2":
+                comment.append("Partially satisfied")
+            else:
+                comment.append("Completely satisfied")
+            loop = loop + 1
+
+        ai_checklist = [
+            {
+                "brsr": "Businesses should conduct and govern themselves with integrity and in a manner that is Ethical, Transparent and Accountable",
+                "sdg": "SDG-16, SDG-17",
+                "indicator_gri_and_assessment": [
+                    {
+                        "ind": "Bribery & Corruption",
+                        "gri": "GRI 2-23, GRI 205-3",
+                        "assessment": comment[0],
+                    },
+                    {
+                        "ind": "Training on principles",
+                        "gri": "GRI 2-17",
+                        "assessment": comment[1],
+                    },
+                    {
+                        "ind": "Transparency & disclosure",
+                        "gri": "GRI 2-17",
+                        "assessment": comment[2],
+                    },
+                ],
+            },
+            {
+                "brsr": "Businesses should provide goods and services in a manner that is sustainable and safe",
+                "sdg": "SDG-2, SDG-6, SDG-7, SDG-8, SDG-10, SDG-12, SDG-13, SDG-14, SDG-15",
+                "indicator_gri_and_assessment": [
+                    {
+                        "ind": "R&D & capital expenditure",
+                        "gri": "No direct linkage with GRI",
+                        "assessment": comment[3],
+                    },
+                    {
+                        "ind": "Input material and sourcing",
+                        "gri": "GRI 308-1",
+                        "assessment": comment[4],
+                    },
+                    {
+                        "ind": "Usage of recycled or reused inputs",
+                        "gri": "GRI 306-2",
+                        "assessment": comment[5],
+                    },
+                ],
+            },
+            {
+                "brsr": "Businesses should respect and promote the well-being of all employees, including, those in their value chains",
+                "sdg": "SDG-1, SDG-3, SDG-4, SDG-5, SDG-8, SDG-9, SDG-11, SDG-16",
+                "indicator_gri_and_assessment": [
+                    {
+                        "ind": "Well being of employees and workmen",
+                        "gri": "GRI 401-2,GRI 401-3",
+                        "assessment": comment[6],
+                    },
+                    {
+                        "ind": "Details of trainings given to employees",
+                        "gri": "GRI 404-1",
+                        "assessment": comment[7],
+                    },
+                    {
+                        "ind": "Membership of employees in unions/ associations",
+                        "gri": "GRI 2-30",
+                        "assessment": comment[8],
+                    },
+                ],
+            },
+            {
+                "brsr": "Businesses should respect the interests of and be responsive to all its stakeholders",
+                "sdg": "SDG-1, SDG-5, SDG-9, SDG-11, SDG-16",
+                "indicator_gri_and_assessment": [
+                    {
+                        "ind": "Protection of stakeholder's interest",
+                        "gri": "GRI 2-29",
+                        "assessment": comment[9],
+                    },
+                ],
+            },
+            {
+                "brsr": "Businesses should respect and promote human rights",
+                "sdg": "SDG-5, SDG-8, SDG-16",
+                "indicator_gri_and_assessment": [
+                    {
+                        "ind": "Protection of Human rights",
+                        "gri": "GRI 2-24",
+                        "assessment": comment[10],
+                    },
+                    {
+                        "ind": "Details of salary/wages, minimum wages policy",
+                        "gri": "GRI 2-19, GRI 2-21, GRI 405-2",
+                        "assessment": comment[11],
+                    },
+                    {
+                        "ind": "Grievances related to human rights issues such as child labor, sexual harassment etc",
+                        "gri": "GRI 2-13, GRI 2-25, GRI 406-1",
+                        "assessment": comment[12],
+                    },
+                ],
+            },
+            {
+                "brsr": "Businesses should respect and make efforts to protect and restore the environment",
+                "sdg": "SDG-2, SDG-3, SDG-6, SDG-7, SDG-10, SDG-12, SDG-13, SDG-14, SDG-15",
+                "indicator_gri_and_assessment": [
+                    {
+                        "ind": "Total Energy/ Electricity consumption",
+                        "gri": "GRI 302-1, GRI 302-3",
+                        "assessment": comment[13],
+                    },
+                    {
+                        "ind": "Water and Effluents disclosure",
+                        "gri": "GRI 303-1, GRI 303-2, GRI 303-3, GRI 303-4, GRI 303-5",
+                        "assessment": comment[14],
+                    },
+                    {
+                        "ind": "GHG Emissions",
+                        "gri": "GRI 305-1, GRI 305-2, GRI 305-4, GRI 305-5",
+                        "assessment": comment[15],
+                    },
+                    {
+                        "ind": "Waste, e-waste related disclosure",
+                        "gri": "GRI 306-3, GRI 306-4, GRI 306-5, GRI 306-2",
+                        "assessment": comment[16],
+                    },
+                    {
+                        "ind": "Biodiversity",
+                        "gri": "GRI 304-1",
+                        "assessment": comment[17],
+                    },
+                    {
+                        "ind": "Environmental impact assessments",
+                        "gri": "GRI 413-1, GRI 303-1",
+                        "assessment": comment[18],
+                    },
+                ],
+            },
+            {
+                "brsr": "Businesses, when engaging in influencing public and regulatory policy, should do so in a manner that is responsible and transparent",
+                "sdg": "SDG-2, SDG-7, SDG-10, SDG-11, SDG-13, SDG-14, SDG-15, SDG-17",
+                "indicator_gri_and_assessment": [
+                    {
+                        "ind": "Affiliation with association & industry chambers",
+                        "gri": "GRI 2-28",
+                        "assessment": comment[19],
+                    },
+                ],
+            },
+            {
+                "brsr": "Businesses should promote inclusive growth and equitable development",
+                "sdg": "SDG-1, SDG-2, SDG-3, SDG-5, SDG-6, SDG-8, SDG-9, SDG-11, SDG-(13-17)",
+                "indicator_gri_and_assessment": [
+                    {
+                        "ind": "CSR beneficiaries",
+                        "gri": "GRI 413-1, GRI 2-25",
+                        "assessment": comment[20],
+                    },
+                    {
+                        "ind": "Input material procurement",
+                        "gri": "GRI 204-1",
+                        "assessment": comment[21],
+                    },
+                ],
+            },
+            {
+                "brsr": "Businesses should engage with and provide value to their consumers in a responsible manner",
+                "sdg": "SDG-2, SDG-4, SDG-12, SDG-14, SDG-15",
+                "indicator_gri_and_assessment": [
+                    {
+                        "ind": "Responding to consumer complaints and feedback",
+                        "gri": "GRI 2-25",
+                        "assessment": comment[22],
+                    },
+                    {
+                        "ind": "Marketing and Labeling",
+                        "gri": "GRI 417",
+                        "assessment": comment[23],
+                    },
+                    {
+                        "ind": "Customer Privacy",
+                        "gri": "GRI 418",
+                        "assessment": comment[24],
+                    },
+                ],
+            },
+        ]
+
+        ai_checklist = json.dumps(ai_checklist, indent=4)
+        return ai_checklist
+
+
+@csrf_exempt
+def ai_principle_checklist(request):
+    if request.method == "POST" and "pdf_id" in request.POST:
+        pdf_id = request.POST["pdf_id"]
+        mapping_file_path = os.path.join(
+            settings.BASE_DIR, "public\\app", "pdf_mappings_app.json"
+        )
+        with open(mapping_file_path, "r") as mapping_file:
+            data = json.load(mapping_file)
+            uploaded_file = data.get(pdf_id, None)
+            return JsonResponse(
+                assessment_main(uploaded_file), safe=False
             )
 
 
 @csrf_exempt  # Disable CSRF protection for this view (not recommended for production)
-def upload_pdf_app2(request):
+def upload_pdf(request):
     if (
         request.method == "POST"
         and "pdf_file" in request.FILES
@@ -173,25 +409,26 @@ def upload_pdf_app2(request):
         pdf_id = request.POST["pdf_id"]
 
         # Define the path to the public directory
-        public_dir = os.path.join(settings.BASE_DIR, "public\\app2")
+        public_dir = os.path.join(settings.BASE_DIR, "public\\app")
 
         # Create the directory if it doesn't exist
         if not os.path.exists(public_dir):
             os.makedirs(public_dir)
 
         # Define the file path
-        file_path = os.path.join(public_dir, pdf_file.name)
+        file_path = os.path.join(public_dir, f"{pdf_id}.pdf")
 
         # Save the file
         with open(file_path, "wb+") as destination:
             for chunk in pdf_file.chunks():
                 destination.write(chunk)
 
+        temp = f"{pdf_id}.pdf"
         # Construct the URL
-        file_url = request.build_absolute_uri(f"/public/app2/{pdf_file.name}")
+        file_url = request.build_absolute_uri(f"/public/app/{temp}")
 
         mapping_file_path = os.path.join(
-            settings.BASE_DIR, "public\\app2", "pdf_mappings_app2.json"
+            settings.BASE_DIR, "public\\app", "pdf_mappings.json"
         )
         if os.path.exists(mapping_file_path):
             with open(mapping_file_path, "r") as mapping_file:
@@ -216,384 +453,94 @@ def upload_pdf_app2(request):
 
 
 
-def assessment_main(temp_dir):
-    # st.title("ESG Report Assessment")
-    # st.write("**Upload BRSR Document (PDF format only)**")
-    # uploaded_file_1 = st.file_uploader("Choose a PDF:", type="pdf")
-    if temp_dir is not None:
-        # Create a temporary directory for indexing
-        # st.header("**BRSR Principles Checklist**")
-        # with tempfile.TemporaryDirectory() as temp_dir_1:
-            # Save uploaded file
-            # pdf_path = f"{temp_dir_1}/{uploaded_file_1.name}"
-            # with open(pdf_path, "wb") as f:
-            #     f.write(uploaded_file_1.read())
 
-            # Create a SimpleDirectoryReader instance
-            reader = SimpleDirectoryReader(temp_dir)
+@csrf_exempt
+def ai_chat_load(request):
+        if request.method == "POST":
+            pdf_ids = request.POST.get("pdf_ids", "[]")
+            pdf_ids = json.loads(pdf_ids)
+            if not isinstance(pdf_ids, list):
+                return JsonResponse(
+                    {"error": "Invalid data format. 'pdf_ids' should be a list."},
+                    status=400,
+                )
 
-            # Load data from the reader
-            documents = reader.load_data()
-            index = VectorStoreIndex.from_documents(documents)
-            loop = 0
-            comment = []
-            for prompt in prompts:
-                score = get_answer(prompts[loop], index)
-                if score == "1":
-                    comment.append("Not satisfied")
-                elif score == "2":
-                    comment.append("Partially satisfied")
-                else:
-                    comment.append("Completely satisfied")
-                loop = loop + 1
+            temp_index = ""
 
-            ai_checklist = [
-                {
-                    "brsr":"Businesses should conduct and govern themselves with integrity and in a manner that is Ethical, Transparent and Accountable",
-                    "sdg":"SDG-16, SDG-17",
-                    "indicator_gri_and_assessment":[
-                        {"ind":"Bribery & Corruption", "gri":"GRI 2-23, GRI 205-3", "assessment":comment[0]},
-                        {"ind":"Training on principles", "gri":"GRI 2-17", "assessment":comment[1]},
-                        {"ind":"Transparency & disclosure", "gri":"GRI 2-17", "assessment":comment[2]},
-                    ],
-                },
-                {
-                    "brsr":"Businesses should provide goods and services in a manner that is sustainable and safe",
-                    "sdg":"SDG-2, SDG-6, SDG-7, SDG-8, SDG-10, SDG-12, SDG-13, SDG-14, SDG-15",
-                    "indicator_gri_and_assessment":[
-                        {"ind":"R&D & capital expenditure", "gri":"No direct linkage with GRI", "assessment":comment[3]},
-                        {"ind":"Input material and sourcing", "gri":"GRI 308-1", "assessment":comment[4]},
-                        {"ind":"Usage of recycled or reused inputs", "gri":"GRI 306-2", "assessment":comment[5]},
-                    ],
-                },
-                {
-                    "brsr":"Businesses should respect and promote the well-being of all employees, including, those in their value chains",
-                    "sdg":"SDG-1, SDG-3, SDG-4, SDG-5, SDG-8, SDG-9, SDG-11, SDG-16",
-                    "indicator_gri_and_assessment":[
-                        {"ind":"Well being of employees and workmen", "gri":"GRI 401-2,GRI 401-3", "assessment":comment[6]},
-                        {"ind":"Details of trainings given to employees", "gri":"GRI 404-1", "assessment":comment[7]},
-                        {"ind":"Membership of employees in unions/ associations", "gri":"GRI 2-30", "assessment":comment[8]},
-                    ],
-                },
-                {
-                    "brsr":"Businesses should respect the interests of and be responsive to all its stakeholders",
-                    "sdg":"SDG-1, SDG-5, SDG-9, SDG-11, SDG-16",
-                    "indicator_gri_and_assessment":[
-                        {"ind":"Protection of stakeholder's interest", "gri":"GRI 2-29", "assessment":comment[9]},
-                    ],
-                },
-                {
-                    "brsr":"Businesses should respect and promote human rights",
-                    "sdg":"SDG-5, SDG-8, SDG-16",
-                    "indicator_gri_and_assessment":[
-                        {"ind":"Protection of Human rights", "gri":"GRI 2-24", "assessment":comment[10]},
-                        {"ind":"Details of salary/wages, minimum wages policy", "gri":"GRI 2-19, GRI 2-21, GRI 405-2", "assessment":comment[11]},
-                        {"ind":"Grievances related to human rights issues such as child labor, sexual harassment etc", "gri":"GRI 2-13, GRI 2-25, GRI 406-1", "assessment":comment[12]},
-                    ],
-                },
-                {
-                    "brsr":"Businesses should respect and make efforts to protect and restore the environment",
-                    "sdg":"SDG-2, SDG-3, SDG-6, SDG-7, SDG-10, SDG-12, SDG-13, SDG-14, SDG-15",
-                    "indicator_gri_and_assessment":[
-                        {"ind":"Total Energy/ Electricity consumption", "gri":"GRI 302-1, GRI 302-3", "assessment":comment[13]},
-                        {"ind":"Water and Effluents disclosure", "gri":"GRI 303-1, GRI 303-2, GRI 303-3, GRI 303-4, GRI 303-5", "assessment":comment[14]},
-                        {"ind":"GHG Emissions", "gri":"GRI 305-1, GRI 305-2, GRI 305-4, GRI 305-5", "assessment":comment[15]},
-                        {"ind":"Waste, e-waste related disclosure", "gri":"GRI 306-3, GRI 306-4, GRI 306-5, GRI 306-2", "assessment":comment[16]},
-                        {"ind":"Biodiversity", "gri":"GRI 304-1", "assessment":comment[17]},
-                        {"ind":"Environmental impact assessments", "gri":"GRI 413-1, GRI 303-1", "assessment":comment[18]},
-                    ],
-                },
-                {
-                    "brsr":"Businesses, when engaging in influencing public and regulatory policy, should do so in a manner that is responsible and transparent",
-                    "sdg":"SDG-2, SDG-7, SDG-10, SDG-11, SDG-13, SDG-14, SDG-15, SDG-17",
-                    "indicator_gri_and_assessment":[
-                        {"ind":"Affiliation with association & industry chambers", "gri":"GRI 2-28", "assessment":comment[19]},
-                    ],
-                },
-                {
-                    "brsr":"Businesses should promote inclusive growth and equitable development",
-                    "sdg":"SDG-1, SDG-2, SDG-3, SDG-5, SDG-6, SDG-8, SDG-9, SDG-11, SDG-(13-17)",
-                    "indicator_gri_and_assessment":[
-                        {"ind":"CSR beneficiaries", "gri":"GRI 413-1, GRI 2-25", "assessment":comment[20]},
-                        {"ind":"Input material procurement", "gri":"GRI 204-1", "assessment":comment[21]},
-                    ],
-                },
-                {
-                    "brsr":"Businesses should engage with and provide value to their consumers in a responsible manner",
-                    "sdg":"SDG-2, SDG-4, SDG-12, SDG-14, SDG-15",
-                    "indicator_gri_and_assessment":[
-                        {"ind":"Responding to consumer complaints and feedback", "gri":"GRI 2-25", "assessment":comment[22]},
-                        {"ind":"Marketing and Labeling", "gri":"GRI 417", "assessment":comment[23]},
-                        {"ind":"Customer Privacy", "gri":"GRI 418", "assessment":comment[24]},
-                    ],
-                },
-            ]
+            mapping_file_path = os.path.join(
+                settings.BASE_DIR, "public\\app", "pdf_mappings.json"
+            )
+            with open(mapping_file_path, "r") as mapping_file:
+                data = json.load(mapping_file)
+                doc_list = []
 
-            ai_checklist = json.dumps(ai_checklist, indent=4)
-            return ai_checklist
+                for id in pdf_ids:
+                    temp_index = temp_index + id
+                    uploaded_file = data.get(id)
+                    print(uploaded_file)
+                    document = loader.load_data(file=uploaded_file)
+                    doc_list.extend(document)
+                print(len(doc_list))
+                print(doc_list)
+                cleaned_docs = []
+                for d in doc_list:
+                    cleaned_text = clean_up_text(d.text)
+                    d.text = cleaned_text
+                    cleaned_docs.append(d)
 
-            # data["Assessment"] = comment
-            # df = pd.DataFrame(data)
+                pc = PineconeGRPC(api_key=pinecone_api_key)
+                index_name = "esg-genai"
 
-          #   html = """
-          # <table border="1" style="margin: 0 auto; width:100%; border-collapse: collapse; text-align: center;">
-          # <thead>
-          #   <tr>
-          #     <th>Principle#</th>
-          #     <th>BRSR Principles</th>
-          #     <th>SDG Goals</th>
-          #     <th>Indicators</th>
-          #     <th>GRI Mapping</th>
-          #     <th>Assesssment</th>
-          #   </tr>
-          # </thead>
-          # <tbody>
-          #   <tr>
-          #     <td rowspan="3"><strong>Principle 1</td>
-          #     <td rowspan="3">Businesses should conduct and govern themselves with integrity and in a manner that is Ethical, Transparent and Accountable</td>
-          #     <td rowspan="3">SDG-16, SDG-17</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   <tr>
-          #     <td rowspan="3"><strong>Principle 2</td>
-          #     <td rowspan="3">Businesses should provide goods and services in a manner that is sustainable and safe</td>
-          #     <td rowspan="3">SDG-2, SDG-6, SDG-7, SDG-8, SDG-10, SDG-12, SDG-13, SDG-14, SDG-15</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   <tr>
-          #     <td rowspan="3"><strong>Principle 3</td>
-          #     <td rowspan="3">Businesses should respect and promote the well-being of all employees, including, those in their value chains</td>
-          #     <td rowspan="3">SDG-1, SDG-3, SDG-4, SDG-5, SDG-8, SDG-9, SDG-11, SDG-16</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   <tr>
-          #     <td><strong>Principle 4</td>
-          #     <td>Businesses should respect the interests of and be responsive to all its stakeholders</td>
-          #     <td>SDG-1, SDG-5, SDG-9, SDG-11, SDG-16</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   <tr>
-          #     <td rowspan="3"><strong>Principle 5</td>
-          #     <td rowspan="3">Businesses should respect and promote human rights</td>
-          #     <td rowspan="3">SDG-5, SDG-8, SDG-16</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   <tr>
-          #     <td rowspan="6"><strong>Principle 6</td>
-          #     <td rowspan="6">Businesses should respect and make efforts to protect and restore the environment</td>
-          #     <td rowspan="6">SDG-2, SDG-3, SDG-6, SDG-7, SDG-10, SDG-12, SDG-13, SDG-14, SDG-15</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   <tr>
-          #     <td><strong>Principle 7</td>
-          #     <td>Businesses, when engaging in influencing public and regulatory policy, should do so in a manner that is responsible and transparent</td>
-          #     <td>SDG-2, SDG-7, SDG-10, SDG-11, SDG-13, SDG-14, SDG-15, SDG-17</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   <tr>
-          #     <td rowspan="2"><strong>Principle 8</td>
-          #     <td rowspan="2">Businesses should promote inclusive growth and equitable development</td>
-          #     <td rowspan="2">SDG-1, SDG-2, SDG-3, SDG-5, SDG-6, SDG-8, SDG-9, SDG-11, SDG-(13-17)</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   <tr>
-          #     <td rowspan="3"><strong>Principle 9</td>
-          #     <td rowspan="3">Businesses should engage with and provide value to their consumers in a responsible manner</td>
-          #     <td rowspan="3">SDG-2, SDG-4, SDG-12, SDG-14, SDG-15</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          #   </tr>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #     <td>{}</td>
-          #   </tr>
-          # </tbody>
-          # </table>
-          # """.format(
-          #       df.iloc[1, 3],
-          #       df.iloc[1, 4],
-          #       df.iloc[1, 5],
-          #       df.iloc[2, 3],
-          #       df.iloc[2, 4],
-          #       df.iloc[2, 5],
-          #       df.iloc[3, 3],
-          #       df.iloc[3, 4],
-          #       df.iloc[3, 5],
-          #       df.iloc[4, 3],
-          #       df.iloc[4, 4],
-          #       df.iloc[4, 5],
-          #       df.iloc[5, 3],
-          #       df.iloc[5, 4],
-          #       df.iloc[5, 5],
-          #       df.iloc[6, 3],
-          #       df.iloc[6, 4],
-          #       df.iloc[6, 5],
-          #       df.iloc[7, 3],
-          #       df.iloc[7, 4],
-          #       df.iloc[7, 5],
-          #       df.iloc[8, 3],
-          #       df.iloc[8, 4],
-          #       df.iloc[8, 5],
-          #       df.iloc[9, 3],
-          #       df.iloc[9, 4],
-          #       df.iloc[9, 5],
-          #       df.iloc[10, 3],
-          #       df.iloc[10, 4],
-          #       df.iloc[10, 5],
-          #       df.iloc[11, 3],
-          #       df.iloc[11, 4],
-          #       df.iloc[11, 5],
-          #       df.iloc[12, 3],
-          #       df.iloc[12, 4],
-          #       df.iloc[12, 5],
-          #       df.iloc[13, 3],
-          #       df.iloc[13, 4],
-          #       df.iloc[13, 5],
-          #       df.iloc[14, 3],
-          #       df.iloc[14, 4],
-          #       df.iloc[14, 5],
-          #       df.iloc[15, 3],
-          #       df.iloc[15, 4],
-          #       df.iloc[15, 5],
-          #       df.iloc[16, 3],
-          #       df.iloc[16, 4],
-          #       df.iloc[16, 5],
-          #       df.iloc[17, 3],
-          #       df.iloc[17, 4],
-          #       df.iloc[17, 5],
-          #       df.iloc[18, 3],
-          #       df.iloc[18, 4],
-          #       df.iloc[18, 5],
-          #       df.iloc[19, 3],
-          #       df.iloc[19, 4],
-          #       df.iloc[19, 5],
-          #       df.iloc[20, 3],
-          #       df.iloc[20, 4],
-          #       df.iloc[20, 5],
-          #       df.iloc[21, 3],
-          #       df.iloc[21, 4],
-          #       df.iloc[21, 5],
-          #       df.iloc[22, 3],
-          #       df.iloc[22, 4],
-          #       df.iloc[22, 5],
-          #       df.iloc[23, 3],
-          #       df.iloc[23, 4],
-          #       df.iloc[23, 5],
-          #       df.iloc[24, 3],
-          #       df.iloc[24, 4],
-          #       df.iloc[24, 5],
-          #       df.iloc[25, 3],
-          #       df.iloc[25, 4],
-          #       df.iloc[25, 5],
-          #   )
+                # Create your index (can skip this step if your index already exists)
+                # pc.create_index(
+                #     index_name,
+                #     dimension=1536,
+                #     spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                # )
 
-            # Display the custom HTML in Streamlit
-            # st.markdown(html, unsafe_allow_html=True)
+                # Initialize your index
+                pinecone_index = pc.Index(index_name)
+
+                # Initialize VectorStore
+                vector_store = PineconeVectorStore(pinecone_index=pinecone_index, namespace = temp_index)
+                pipeline = IngestionPipeline(
+                    transformations=[
+                        SentenceSplitter(chunk_size=200000, chunk_overlap=0),
+                        TitleExtractor(),
+                        OpenAIEmbedding(),
+                    ],
+                    vector_store=vector_store,
+                    
+                )
+                pipeline.run(documents=cleaned_docs)                
+                return JsonResponse({"Docs_index": temp_index})
+                
 
 
 @csrf_exempt
-def ai_principle_checklist(request):
-    if request.method == "POST" and "pdf_id" in request.POST:
-        pdf_id = request.POST["pdf_id"]
-        mapping_file_path = os.path.join(
-            settings.BASE_DIR, "public\\app2", "pdf_mappings_app2.json"
+def ai_chat_query(request):
+    if (
+        request.method == "POST"
+        and "combined_id" in request.POST
+        and "query" in request.POST
+    ):
+        temp_index = request.POST["combined_id"]
+        query = request.POST["query"]
+        pc = PineconeGRPC(api_key=pinecone_api_key)
+        index_name = "esg-genai"
+        pinecone_index = pc.Index(index_name)
+        if not os.getenv("OPENAI_API_KEY"):
+            os.environ["OPENAI_API_KEY"] = openai_api_key
+
+                # Instantiate VectorStoreIndex object from our vector_store object
+        vector_store = PineconeVectorStore(pinecone_index=pinecone_index, namespace=temp_index)
+        vector_index = VectorStoreIndex.from_vector_store(
+            vector_store=vector_store
         )
-        with open(mapping_file_path, "r") as mapping_file:
-            data = json.load(mapping_file)
-            uploaded_file = data.get(pdf_id, None)
-            return JsonResponse(
-                assessment_main(os.path.dirname(uploaded_file)), safe=False
-            )
+
+                # Grab 5 search results
+        retriever = VectorIndexRetriever(index=vector_index, similarity_top_k=1)
+        query_engine = RetrieverQueryEngine(retriever=retriever)
+        llm_query = query_engine.query(query)
+        # index = vector_dict[temp_index]
+        return JsonResponse({"response": llm_query.response})
