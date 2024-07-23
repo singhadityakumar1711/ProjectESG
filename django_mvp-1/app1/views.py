@@ -19,13 +19,28 @@ from llama_index.vector_stores.pinecone import PineconeVectorStore
 import os
 from getpass import getpass
 import re
+from langchain_community.tools import WikipediaQueryRun
+from langchain_community.utilities import WikipediaAPIWrapper
+
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.tools.retriever import create_retriever_tool
+from langchain_community.chat_models import ChatOpenAI
+
+from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper
+from langchain import hub
+from langchain.agents import create_openai_tools_agent
+from langchain.agents import AgentExecutor
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 # from llama_index.node_parser import SemanticSplitterNodeParser
-from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.embeddings.openai import OpenAIEmbedding 
 
 # from llama_index.ingestion import IngestionPipeline
 from llama_index.core import Document
-from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.extractors import TitleExtractor
 from llama_index.core.ingestion import IngestionPipeline, IngestionCache
@@ -36,6 +51,7 @@ PDFReader = download_loader("PDFReader")
 loader = PDFReader()
 pinecone_api_key = os.getenv("PINECONE_API_KEY")
 openai_api_key = os.getenv("OPENAI_API_KEY")
+tavily_api_key = os.getenv("TAVILY_API_KEY")
 embed_model = OpenAIEmbedding(api_key=openai_api_key)
 
 
@@ -505,7 +521,7 @@ def ai_chat_load(request):
                 vector_store = PineconeVectorStore(pinecone_index=pinecone_index, namespace = temp_index)
                 pipeline = IngestionPipeline(
                     transformations=[
-                        SentenceSplitter(chunk_size=200000, chunk_overlap=0),
+                        SentenceSplitter(chunk_size=1000000, chunk_overlap=0),
                         TitleExtractor(),
                         OpenAIEmbedding(),
                     ],
@@ -537,10 +553,61 @@ def ai_chat_query(request):
         vector_index = VectorStoreIndex.from_vector_store(
             vector_store=vector_store
         )
-
-                # Grab 5 search results
         retriever = VectorIndexRetriever(index=vector_index, similarity_top_k=1)
         query_engine = RetrieverQueryEngine(retriever=retriever)
         llm_query = query_engine.query(query)
         # index = vector_dict[temp_index]
         return JsonResponse({"response": llm_query.response})
+
+
+def user_input(user_question, tools):
+    prompt = hub.pull("hwchase17/openai-functions-agent")
+    llm = ChatOpenAI(temperature=0, 
+                 model_name='gpt-3.5-turbo-1106',
+                 api_key=openai_api_key,
+                 request_timeout=180)
+
+    prompt2 = ChatPromptTemplate.from_messages(
+        [
+            ("system", "You are an assistant for question-answering tasks, who also is an expert at routing a user question to a vectorstore or web search. Use the vectorstore for questions on sustainibility reporting, ESG disclosures, SEBI BRSR guidelines etc . However you do not need to be stringent with the keywords in the question related to these topics. Otherwise, use web-search. The goal is to filter out erroneous retrievals. If you don't know the answer, just say that you don't know. Use three sentences maximum and keep the answer concise. You have access to the following tools:{tools}"),
+            MessagesPlaceholder("chat_history", optional=True),
+            ("human", "{input}"),
+            MessagesPlaceholder("agent_scratchpad"),
+        ]
+    )
+
+    llm = ChatOpenAI(temperature=0, model_name='gpt-3.5-turbo-1106')
+  
+    llm2 = "llama3"
+    agent=create_openai_tools_agent(llm,tools,prompt2)
+
+    agent=create_openai_tools_agent(llm,tools,prompt)
+    agent_executor=AgentExecutor(agent=agent,tools=tools,verbose=True)
+    response=agent_executor.invoke({"input":user_question})
+    return response["output"]
+
+@csrf_exempt
+def ai_agent(request):
+    if (
+        request.method == "POST"
+        and "query" in request.POST
+    ):
+        query = request.POST["query"]
+        tavily_wrapper = TavilySearchAPIWrapper(tavily_api_key=tavily_api_key)
+        tavily = TavilySearchResults(api_wrapper=tavily_wrapper)
+
+        embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+        new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+        retriever=new_db.as_retriever()
+
+        retriever_tool=create_retriever_tool(retriever,"brsr_search",
+                                            "Search for information about brsr & sustainibility. For any questions about india sustainibility & BRSR, you must use this tool!"
+                                            )
+
+
+        api_wrapper=WikipediaAPIWrapper(top_k_results=1,doc_content_chars_max=200)
+        wiki=WikipediaQueryRun(api_wrapper=api_wrapper)
+
+        tools=[retriever_tool,tavily,wiki]
+        response = user_input(query, tools)
+        
