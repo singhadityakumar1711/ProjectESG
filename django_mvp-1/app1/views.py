@@ -586,6 +586,94 @@ def user_input(user_question, tools):
     response=agent_executor.invoke({"input":user_question})
     return response["output"]
 
+# def get_vector_store():
+#         urls = [
+#             "https://www.sebi.gov.in/sebi_data/commondocs/may-2021/Business%20responsibility%20and%20sustainability%20reporting%20by%20listed%20entitiesAnnexure1_p.PDF",
+#             "https://www.sebi.gov.in/legal/circulars/jul-2023/brsr-core-framework-for-assurance-and-esg-disclosures-for-value-chain_73854.html",
+#             #  "https://www.sebi.gov.in/sebi_data/commondocs/may-2021/Business%20responsibility%20and%20sustainability%20reporting%20by%20listed%20entitiesAnnexure2_p.PDF",
+#             #  "https://www.sebi.gov.in/sebi_data/commondocs/jul-2023/Annexure_II-Updated-BRSR_p.PDF",
+#             #"https://www.nseindia.com/companies-listing/corporate-filings-bussiness-sustainabilitiy-reports"
+#             ]
+#         docs = [WebBaseLoader(url).load() for url in urls]
+#         print(docs[0])
+#         # print(docs[:3])
+#         docs_list = [item for sublist in docs for item in sublist]
+#         print("-----------")
+#         # print(docs_list[:3])
+#         documents=RecursiveCharacterTextSplitter(chunk_size=1000,chunk_overlap=10).split_documents(docs_list)
+#         # print(documents)
+#         # embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+#         pc = PineconeGRPC(api_key=pinecone_api_key)
+#         index_name = "esg-genai"
+#         pinecone_index = pc.Index(index_name)
+#         vector_store = PineconeVectorStore(pinecone_index=pinecone_index, namespace = "web_agent")
+#         pipeline = IngestionPipeline(
+#                     transformations=[
+#                         SentenceSplitter(chunk_size=10000, chunk_overlap=0),
+#                         TitleExtractor(),
+#                         OpenAIEmbedding(),
+#                     ],
+#                     vector_store=vector_store,
+#                 )
+#         pipeline.run(documents=documents) 
+#         #  vector_store=FAISS.from_documents(documents,embedding=embeddings)
+#         #  vector_store.save_local("brsr_faiss_index")
+#          #return vectordb
+
+# @csrf_exempt
+# def ai_agent(request):
+#     if (
+#         request.method == "POST"
+#         and "query" in request.POST
+#     ):
+#         query = request.POST["query"]
+#         tavily_wrapper = TavilySearchAPIWrapper(tavily_api_key=tavily_api_key)
+#         tavily = TavilySearchResults(api_wrapper=tavily_wrapper)
+#         get_vector_store()
+#         # embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+#         # new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+#         # retriever=new_db.as_retriever()
+#         pc = PineconeGRPC(api_key=pinecone_api_key)
+#         index_name = "esg-genai"
+#         pinecone_index = pc.Index(index_name)
+#         if not os.getenv("OPENAI_API_KEY"):
+#             os.environ["OPENAI_API_KEY"] = openai_api_key
+
+#                 # Instantiate VectorStoreIndex object from our vector_store object
+#         vector_store = PineconeVectorStore(pinecone_index=pinecone_index, namespace="web_agent")
+#         vector_index = VectorStoreIndex.from_vector_store(
+#             vector_store=vector_store
+#         )
+#         retriever = VectorIndexRetriever(index=vector_index, similarity_top_k=1)
+#         retriever_tool=create_retriever_tool(retriever,"brsr_search",
+#                                             "Search for information about brsr & sustainibility. For any questions about india sustainibility & BRSR, you must use this tool!"
+#                                             )
+
+
+#         api_wrapper=WikipediaAPIWrapper(top_k_results=1,doc_content_chars_max=200)
+#         wiki=WikipediaQueryRun(api_wrapper=api_wrapper)
+
+#         tools=[retriever_tool,tavily,wiki]
+#         response = user_input(query, tools)
+#         return JsonResponse({"response": response})
+
+def get_vector_store():
+        #  Append your URLs to search in the list below
+         urls = [
+              "https://www.sebi.gov.in/sebi_data/commondocs/may-2021/Business%20responsibility%20and%20sustainability%20reporting%20by%20listed%20entitiesAnnexure1_p.PDF",
+              "https://www.sebi.gov.in/legal/circulars/jul-2023/brsr-core-framework-for-assurance-and-esg-disclosures-for-value-chain_73854.html",
+            #  "https://www.sebi.gov.in/sebi_data/commondocs/may-2021/Business%20responsibility%20and%20sustainability%20reporting%20by%20listed%20entitiesAnnexure2_p.PDF",
+            #  "https://www.sebi.gov.in/sebi_data/commondocs/jul-2023/Annexure_II-Updated-BRSR_p.PDF",
+            #"https://www.nseindia.com/companies-listing/corporate-filings-bussiness-sustainabilitiy-reports"
+            ]
+         docs = [WebBaseLoader(url).load() for url in urls]
+         docs_list = [item for sublist in docs for item in sublist]
+         documents=RecursiveCharacterTextSplitter(chunk_size=1000,chunk_overlap=10).split_documents(docs_list)
+         embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+         vector_store=FAISS.from_documents(documents,embedding=embeddings)
+         vector_store.save_local("faiss_index")
+         #return vectordb
+
 @csrf_exempt
 def ai_agent(request):
     if (
@@ -593,13 +681,13 @@ def ai_agent(request):
         and "query" in request.POST
     ):
         query = request.POST["query"]
+        # Uncomment and run the query once to generate the vectors after appending new URLs
+        # get_vector_store() 
         tavily_wrapper = TavilySearchAPIWrapper(tavily_api_key=tavily_api_key)
         tavily = TavilySearchResults(api_wrapper=tavily_wrapper)
-
         embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
         new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
         retriever=new_db.as_retriever()
-
         retriever_tool=create_retriever_tool(retriever,"brsr_search",
                                             "Search for information about brsr & sustainibility. For any questions about india sustainibility & BRSR, you must use this tool!"
                                             )
@@ -610,4 +698,6 @@ def ai_agent(request):
 
         tools=[retriever_tool,tavily,wiki]
         response = user_input(query, tools)
+        return JsonResponse({"response": response})
+
         
