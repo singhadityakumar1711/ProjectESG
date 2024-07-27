@@ -1,3 +1,4 @@
 testenv/
 public/
-.env/
+
+django_mvp-1/.env
