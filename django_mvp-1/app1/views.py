@@ -87,7 +87,11 @@ def clean_up_text(content: str) -> str:
 
     return content
 
-
+def res_parse(a):
+    b = []
+    for i in a.splitlines():
+        b.append(i.replace("- ", ""))
+    return b
 
 
 prompts = [
@@ -162,17 +166,17 @@ def summarize_main(temp_dir):
 
         summarized_response = {
             "Environmental": {
-                "Water Sustainibilty": responses[0],
-                "Waste Management": responses[1],
-                "Climate Commitments": responses[2],
+                "Water Sustainibilty": res_parse(responses[0]),
+                "Waste Management": res_parse(responses[1]),
+                "Climate Commitments": res_parse(responses[2]),
             },
             "Social": {
-                "Employee wellness, Health & Safety": responses[3],
-                "Diversity & Inclusion": responses[4],
-                "Human Rights": responses[5],
+                "Employee wellness, Health & Safety": res_parse(responses[3]),
+                "Diversity & Inclusion": res_parse(responses[4]),
+                "Human Rights": res_parse(responses[5]),
             },
             "Governance": {
-                "Corporate Governance": responses[6],
+                "Corporate Governance": res_parse(responses[6]),
             },
         }
 
