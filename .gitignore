@@ -1,0 +1,4 @@
+testenv/
+public/
+
+django_mvp-1/.env
