@@ -5,6 +5,7 @@ from django.conf import settings
 import json
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
 from llama_index.core.query_engine import RetrieverQueryEngine
+
 # from pinecone import Pinecone, ServerlessSpec
 from llama_index.core import (
     VectorStoreIndex,
@@ -37,7 +38,7 @@ from langchain.agents import AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 # from llama_index.node_parser import SemanticSplitterNodeParser
-from llama_index.embeddings.openai import OpenAIEmbedding 
+from llama_index.embeddings.openai import OpenAIEmbedding
 
 # from llama_index.ingestion import IngestionPipeline
 from llama_index.core import Document
@@ -87,6 +88,7 @@ def clean_up_text(content: str) -> str:
 
     return content
 
+
 def res_parse(a):
     b = []
     for i in a.splitlines():
@@ -121,7 +123,6 @@ prompts = [
     "Critically analyze the contribution in the field of Marketing and Labeling. There are three metrics to analyze -1. Look thogroughly and strictly whether the company has alligned their policies promoting Marketing and Labeling 2. Look thogroughly and strictly whether the company has identified the impacts of Marketing and Labeling on operations 3. Look thogroughly and strictly whether the company has tracked the implementation and effectiveness of actions taken in response to Marketing and Labeling.Be strict when providing scores to the metrics. Just give me a number representing the count of the number of metrics that the company has addressed. No details are required. Just give me a value in digits",
     "Critically analyze the contribution in the field of Customer Privacy. There are three metrics to analyze -1. Look thogroughly and strictly whether the company has alligned their policies promoting Customer Privacy 2. Look thogroughly and strictly whether the company has identified the impacts of Customer Privacy on operations 3. Look thogroughly and strictly whether the company has tracked the implementation and effectiveness of actions taken in response to Customer Privacy.Be strict when providing scores to the metrics. Just give me a number representing the count of the number of metrics that the company has addressed. No details are required. Just give me a value in digits",
 ]
-
 
 
 def get_answer(query, index):
@@ -189,20 +190,17 @@ def ai_summarized(request):
     if request.method == "POST" and "pdf_id" in request.POST:
         pdf_id = request.POST["pdf_id"]
         mapping_file_path = os.path.join(
-            settings.BASE_DIR, "public\\app", "pdf_mappings.json"
+            settings.BASE_DIR, "public/app", "pdf_mappings.json"
         )
         with open(mapping_file_path, "r") as mapping_file:
             data = json.load(mapping_file)
             uploaded_file = data.get(pdf_id, None)
-            return JsonResponse(
-                summarize_main(uploaded_file), safe=False
-            )
-
+            return JsonResponse(summarize_main(uploaded_file), safe=False)
 
 
 def assessment_main(temp_dir):
     if temp_dir is not None:
-        
+
         documents = loader.load_data(file=temp_dir)
         index = VectorStoreIndex.from_documents(documents)
         loop = 0
@@ -408,14 +406,12 @@ def ai_principle_checklist(request):
     if request.method == "POST" and "pdf_id" in request.POST:
         pdf_id = request.POST["pdf_id"]
         mapping_file_path = os.path.join(
-            settings.BASE_DIR, "public\\app", "pdf_mappings_app.json"
+            settings.BASE_DIR, "public/app", "pdf_mappings.json"
         )
         with open(mapping_file_path, "r") as mapping_file:
             data = json.load(mapping_file)
             uploaded_file = data.get(pdf_id, None)
-            return JsonResponse(
-                assessment_main(uploaded_file), safe=False
-            )
+            return JsonResponse(assessment_main(uploaded_file), safe=False)
 
 
 @csrf_exempt  # Disable CSRF protection for this view (not recommended for production)
@@ -429,7 +425,7 @@ def upload_pdf(request):
         pdf_id = request.POST["pdf_id"]
 
         # Define the path to the public directory
-        public_dir = os.path.join(settings.BASE_DIR, "public\\app")
+        public_dir = os.path.join(settings.BASE_DIR, "public/app")
 
         # Create the directory if it doesn't exist
         if not os.path.exists(public_dir):
@@ -448,7 +444,7 @@ def upload_pdf(request):
         file_url = request.build_absolute_uri(f"/public/app/{temp}")
 
         mapping_file_path = os.path.join(
-            settings.BASE_DIR, "public\\app", "pdf_mappings.json"
+            settings.BASE_DIR, "public/app", "pdf_mappings.json"
         )
         if os.path.exists(mapping_file_path):
             with open(mapping_file_path, "r") as mapping_file:
@@ -472,69 +468,67 @@ def upload_pdf(request):
     return JsonResponse({"error": "Invalid request"}, status=400)
 
 
-
-
 @csrf_exempt
 def ai_chat_load(request):
-        if request.method == "POST":
-            pdf_ids = request.POST.get("pdf_ids", "[]")
-            pdf_ids = json.loads(pdf_ids)
-            if not isinstance(pdf_ids, list):
-                return JsonResponse(
-                    {"error": "Invalid data format. 'pdf_ids' should be a list."},
-                    status=400,
-                )
-
-            temp_index = ""
-
-            mapping_file_path = os.path.join(
-                settings.BASE_DIR, "public\\app", "pdf_mappings.json"
+    if request.method == "POST":
+        pdf_ids = request.POST.get("pdf_ids", "[]")
+        pdf_ids = json.loads(pdf_ids)
+        if not isinstance(pdf_ids, list):
+            return JsonResponse(
+                {"error": "Invalid data format. 'pdf_ids' should be a list."},
+                status=400,
             )
-            with open(mapping_file_path, "r") as mapping_file:
-                data = json.load(mapping_file)
-                doc_list = []
 
-                for id in pdf_ids:
-                    temp_index = temp_index + id
-                    uploaded_file = data.get(id)
-                    print(uploaded_file)
-                    document = loader.load_data(file=uploaded_file)
-                    doc_list.extend(document)
-                print(len(doc_list))
-                print(doc_list)
-                cleaned_docs = []
-                for d in doc_list:
-                    cleaned_text = clean_up_text(d.text)
-                    d.text = cleaned_text
-                    cleaned_docs.append(d)
+        temp_index = ""
 
-                pc = PineconeGRPC(api_key=pinecone_api_key)
-                index_name = "esg-genai"
+        mapping_file_path = os.path.join(
+            settings.BASE_DIR, "public/app", "pdf_mappings.json"
+        )
+        with open(mapping_file_path, "r") as mapping_file:
+            data = json.load(mapping_file)
+            doc_list = []
 
-                # Create your index (can skip this step if your index already exists)
-                # pc.create_index(
-                #     index_name,
-                #     dimension=1536,
-                #     spec=ServerlessSpec(cloud="aws", region="us-east-1"),
-                # )
+            for id in pdf_ids:
+                temp_index = temp_index + id
+                uploaded_file = data.get(id)
+                print(uploaded_file)
+                document = loader.load_data(file=uploaded_file)
+                doc_list.extend(document)
+            print(len(doc_list))
+            print(doc_list)
+            cleaned_docs = []
+            for d in doc_list:
+                cleaned_text = clean_up_text(d.text)
+                d.text = cleaned_text
+                cleaned_docs.append(d)
 
-                # Initialize your index
-                pinecone_index = pc.Index(index_name)
+            pc = PineconeGRPC(api_key=pinecone_api_key)
+            index_name = "esg-genai"
 
-                # Initialize VectorStore
-                vector_store = PineconeVectorStore(pinecone_index=pinecone_index, namespace = temp_index)
-                pipeline = IngestionPipeline(
-                    transformations=[
-                        SentenceSplitter(chunk_size=1000000, chunk_overlap=0),
-                        TitleExtractor(),
-                        OpenAIEmbedding(),
-                    ],
-                    vector_store=vector_store,
-                    
-                )
-                pipeline.run(documents=cleaned_docs)                
-                return JsonResponse({"Docs_index": temp_index})
-                
+            # Create your index (can skip this step if your index already exists)
+            # pc.create_index(
+            #     index_name,
+            #     dimension=1536,
+            #     spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+            # )
+
+            # Initialize your index
+            pinecone_index = pc.Index(index_name)
+
+            # Initialize VectorStore
+            vector_store = PineconeVectorStore(
+                pinecone_index=pinecone_index, namespace=temp_index
+            )
+            pipeline = IngestionPipeline(
+                transformations=[
+                    SentenceSplitter(chunk_size=1000000, chunk_overlap=0),
+                    TitleExtractor(),
+                    OpenAIEmbedding(),
+                ],
+                vector_store=vector_store,
+            )
+            pipeline.run(documents=cleaned_docs)
+            return JsonResponse({"Docs_index": temp_index})
 
 
 @csrf_exempt
@@ -552,11 +546,11 @@ def ai_chat_query(request):
         if not os.getenv("OPENAI_API_KEY"):
             os.environ["OPENAI_API_KEY"] = openai_api_key
 
-                # Instantiate VectorStoreIndex object from our vector_store object
-        vector_store = PineconeVectorStore(pinecone_index=pinecone_index, namespace=temp_index)
-        vector_index = VectorStoreIndex.from_vector_store(
-            vector_store=vector_store
+            # Instantiate VectorStoreIndex object from our vector_store object
+        vector_store = PineconeVectorStore(
+            pinecone_index=pinecone_index, namespace=temp_index
         )
+        vector_index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
         retriever = VectorIndexRetriever(index=vector_index, similarity_top_k=1)
         query_engine = RetrieverQueryEngine(retriever=retriever)
         llm_query = query_engine.query(query)
@@ -566,29 +560,35 @@ def ai_chat_query(request):
 
 def user_input(user_question, tools):
     prompt = hub.pull("hwchase17/openai-functions-agent")
-    llm = ChatOpenAI(temperature=0, 
-                 model_name='gpt-3.5-turbo-1106',
-                 api_key=openai_api_key,
-                 request_timeout=180)
+    llm = ChatOpenAI(
+        temperature=0,
+        model_name="gpt-3.5-turbo-1106",
+        api_key=openai_api_key,
+        request_timeout=180,
+    )
 
     prompt2 = ChatPromptTemplate.from_messages(
         [
-            ("system", "You are an assistant for question-answering tasks, who also is an expert at routing a user question to a vectorstore or web search. Use the vectorstore for questions on sustainibility reporting, ESG disclosures, SEBI BRSR guidelines etc . However you do not need to be stringent with the keywords in the question related to these topics. Otherwise, use web-search. The goal is to filter out erroneous retrievals. If you don't know the answer, just say that you don't know. Use three sentences maximum and keep the answer concise. You have access to the following tools:{tools}"),
+            (
+                "system",
+                "You are an assistant for question-answering tasks, who also is an expert at routing a user question to a vectorstore or web search. Use the vectorstore for questions on sustainibility reporting, ESG disclosures, SEBI BRSR guidelines etc . However you do not need to be stringent with the keywords in the question related to these topics. Otherwise, use web-search. The goal is to filter out erroneous retrievals. If you don't know the answer, just say that you don't know. Use three sentences maximum and keep the answer concise. You have access to the following tools:{tools}",
+            ),
             MessagesPlaceholder("chat_history", optional=True),
             ("human", "{input}"),
             MessagesPlaceholder("agent_scratchpad"),
         ]
     )
 
-    llm = ChatOpenAI(temperature=0, model_name='gpt-3.5-turbo-1106')
-  
-    llm2 = "llama3"
-    agent=create_openai_tools_agent(llm,tools,prompt2)
+    llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo-1106")
 
-    agent=create_openai_tools_agent(llm,tools,prompt)
-    agent_executor=AgentExecutor(agent=agent,tools=tools,verbose=True)
-    response=agent_executor.invoke({"input":user_question})
+    llm2 = "llama3"
+    agent = create_openai_tools_agent(llm, tools, prompt2)
+
+    agent = create_openai_tools_agent(llm, tools, prompt)
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+    response = agent_executor.invoke({"input": user_question})
     return response["output"]
+
 
 # def get_vector_store():
 #         urls = [
@@ -619,7 +619,7 @@ def user_input(user_question, tools):
 #                     ],
 #                     vector_store=vector_store,
 #                 )
-#         pipeline.run(documents=documents) 
+#         pipeline.run(documents=documents)
 #         #  vector_store=FAISS.from_documents(documents,embedding=embeddings)
 #         #  vector_store.save_local("brsr_faiss_index")
 #          #return vectordb
@@ -661,47 +661,49 @@ def user_input(user_question, tools):
 #         response = user_input(query, tools)
 #         return JsonResponse({"response": response})
 
+
 def get_vector_store():
-        #  Append your URLs to search in the list below
-         urls = [
-              "https://www.sebi.gov.in/sebi_data/commondocs/may-2021/Business%20responsibility%20and%20sustainability%20reporting%20by%20listed%20entitiesAnnexure1_p.PDF",
-              "https://www.sebi.gov.in/legal/circulars/jul-2023/brsr-core-framework-for-assurance-and-esg-disclosures-for-value-chain_73854.html",
-            #  "https://www.sebi.gov.in/sebi_data/commondocs/may-2021/Business%20responsibility%20and%20sustainability%20reporting%20by%20listed%20entitiesAnnexure2_p.PDF",
-            #  "https://www.sebi.gov.in/sebi_data/commondocs/jul-2023/Annexure_II-Updated-BRSR_p.PDF",
-            #"https://www.nseindia.com/companies-listing/corporate-filings-bussiness-sustainabilitiy-reports"
-            ]
-         docs = [WebBaseLoader(url).load() for url in urls]
-         docs_list = [item for sublist in docs for item in sublist]
-         documents=RecursiveCharacterTextSplitter(chunk_size=1000,chunk_overlap=10).split_documents(docs_list)
-         embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-         vector_store=FAISS.from_documents(documents,embedding=embeddings)
-         vector_store.save_local("faiss_index")
-         #return vectordb
+    #  Append your URLs to search in the list below
+    urls = [
+        "https://www.sebi.gov.in/sebi_data/commondocs/may-2021/Business%20responsibility%20and%20sustainability%20reporting%20by%20listed%20entitiesAnnexure1_p.PDF",
+        "https://www.sebi.gov.in/legal/circulars/jul-2023/brsr-core-framework-for-assurance-and-esg-disclosures-for-value-chain_73854.html",
+        #  "https://www.sebi.gov.in/sebi_data/commondocs/may-2021/Business%20responsibility%20and%20sustainability%20reporting%20by%20listed%20entitiesAnnexure2_p.PDF",
+        #  "https://www.sebi.gov.in/sebi_data/commondocs/jul-2023/Annexure_II-Updated-BRSR_p.PDF",
+        # "https://www.nseindia.com/companies-listing/corporate-filings-bussiness-sustainabilitiy-reports"
+    ]
+    docs = [WebBaseLoader(url).load() for url in urls]
+    docs_list = [item for sublist in docs for item in sublist]
+    documents = RecursiveCharacterTextSplitter(
+        chunk_size=1000, chunk_overlap=10
+    ).split_documents(docs_list)
+    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+    vector_store = FAISS.from_documents(documents, embedding=embeddings)
+    vector_store.save_local("faiss_index")
+    # return vectordb
+
 
 @csrf_exempt
 def ai_agent(request):
-    if (
-        request.method == "POST"
-        and "query" in request.POST
-    ):
+    if request.method == "POST" and "query" in request.POST:
         query = request.POST["query"]
         # Uncomment and run the query once to generate the vectors after appending new URLs
-        # get_vector_store() 
+        # get_vector_store()
         tavily_wrapper = TavilySearchAPIWrapper(tavily_api_key=tavily_api_key)
         tavily = TavilySearchResults(api_wrapper=tavily_wrapper)
         embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-        new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-        retriever=new_db.as_retriever()
-        retriever_tool=create_retriever_tool(retriever,"brsr_search",
-                                            "Search for information about brsr & sustainibility. For any questions about india sustainibility & BRSR, you must use this tool!"
-                                            )
+        new_db = FAISS.load_local(
+            "faiss_index", embeddings, allow_dangerous_deserialization=True
+        )
+        retriever = new_db.as_retriever()
+        retriever_tool = create_retriever_tool(
+            retriever,
+            "brsr_search",
+            "Search for information about brsr & sustainibility. For any questions about india sustainibility & BRSR, you must use this tool!",
+        )
 
+        api_wrapper = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=200)
+        wiki = WikipediaQueryRun(api_wrapper=api_wrapper)
 
-        api_wrapper=WikipediaAPIWrapper(top_k_results=1,doc_content_chars_max=200)
-        wiki=WikipediaQueryRun(api_wrapper=api_wrapper)
-
-        tools=[retriever_tool,tavily,wiki]
+        tools = [retriever_tool, tavily, wiki]
         response = user_input(query, tools)
         return JsonResponse({"response": response})
-
-        
