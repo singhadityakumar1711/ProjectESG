@@ -408,7 +408,7 @@ def ai_principle_checklist(request):
     if request.method == "POST" and "pdf_id" in request.POST:
         pdf_id = request.POST["pdf_id"]
         mapping_file_path = os.path.join(
-            settings.BASE_DIR, "public\\app", "pdf_mappings_app.json"
+            settings.BASE_DIR, "public\\app", "pdf_mappings.json"
         )
         with open(mapping_file_path, "r") as mapping_file:
             data = json.load(mapping_file)
