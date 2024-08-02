@@ -494,8 +494,8 @@ def ai_chat_load(request):
                 print(uploaded_file)
                 document = loader.load_data(file=uploaded_file)
                 doc_list.extend(document)
-            print(len(doc_list))
-            print(doc_list)
+            # print(len(doc_list))
+            # print(doc_list)
             cleaned_docs = []
             for d in doc_list:
                 cleaned_text = clean_up_text(d.text)
