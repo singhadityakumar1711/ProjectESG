@@ -466,7 +466,10 @@ def upload_pdf(request):
         )
 
     return JsonResponse({"error": "Invalid request"}, status=400)
-
+    
+def namespace_exists(namespace, index):
+    index_stats = index.describeIndexStats()
+    return namespace in index_stats["namespaces"]
 
 @csrf_exempt
 def ai_chat_load(request):
@@ -494,6 +497,13 @@ def ai_chat_load(request):
                 print(uploaded_file)
                 document = loader.load_data(file=uploaded_file)
                 doc_list.extend(document)
+
+            pc = PineconeGRPC(api_key=pinecone_api_key)
+            index_name = "esg-genai"
+            pinecone_index = pc.Index(index_name)
+            if(namespace_exists(temp_index, pinecone_index)):
+                return JsonResponse({"Docs_index": temp_index})
+                
             # print(len(doc_list))
             # print(doc_list)
             cleaned_docs = []
@@ -502,8 +512,7 @@ def ai_chat_load(request):
                 d.text = cleaned_text
                 cleaned_docs.append(d)
 
-            pc = PineconeGRPC(api_key=pinecone_api_key)
-            index_name = "esg-genai"
+            
 
             # Create your index (can skip this step if your index already exists)
             # pc.create_index(
@@ -513,7 +522,7 @@ def ai_chat_load(request):
             # )
 
             # Initialize your index
-            pinecone_index = pc.Index(index_name)
+            
 
             # Initialize VectorStore
             vector_store = PineconeVectorStore(
@@ -529,6 +538,7 @@ def ai_chat_load(request):
             )
             pipeline.run(documents=cleaned_docs)
             return JsonResponse({"Docs_index": temp_index})
+
 
 
 @csrf_exempt
