@@ -1,0 +1,7 @@
+testenv/
+public/
+venv/
+.env/
+django_mvp-1-windows/venv/
+django_mvp-1/.env
+django_mvp-1-windows/.env

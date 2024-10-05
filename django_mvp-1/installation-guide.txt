@@ -1,0 +1,19 @@
+
+Remove the following libraries from requirements.txt:
+
+protoc-gen-openapiv2==0.0.1
+googleapis-common-protos==1.63.2
+pinecone-client==3.0.0 
+protobuf==3.20.3 ---> 5.27.2 (preinstalled)
+llama-index-vector-stores-pinecone==0.1.7
+
+1. RUN-> "pip install -r requirements_2.txt" or "pip install -r requirements.txt" (if the above libraries have been removed)
+2. pip install protobuf==3.20.3
+3. pip install googleapis-common-protos==1.63.2
+4. pip install protoc-gen-openapiv2==0.0.1
+5. pip freeze | findstr protobuf
+6. pip install protobuf==3.20.3
+7. pip install pinecone-client==3.0.0
+8. pip install llama-index-vector-stores-pinecone==0.1.7
+9. create your .env script (OPENAI, TAVILY, PINECONE)
+10. python manage.py runserver
