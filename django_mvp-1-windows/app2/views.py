@@ -207,11 +207,41 @@ def replace_outliers_with_mean(outlier_dict_mean, dataframe):
 
 
 @csrf_exempt
+def global_placeholder(request):
+    if request.method == "POST":
+        data = json.loads(request.body)
+        placeholder_dict = data.get("placeholder_dict", {})
+        array_2d = data.get("array_2d", [])
+        df = pd.DataFrame(array_2d)
+        df = replace_with_placeholder(placeholder_dict, df)
+
+        connection = sqlite3.connect("GHG_DATA")
+        df.to_sql("GHG_DATA", connection, if_exists="replace")
+        connection.commit()
+        connection.close()
+
+        connection = sqlite3.connect("GHG_DATA")
+
+        # Fetch the dataframe
+        df = pd.read_sql_query("SELECT * FROM GHG_DATA", connection)
+
+        # Convert dataframe to JSON
+        json_data = df.to_json(orient="records")
+
+        # Close the connection
+        connection.close()
+
+        # Send JSON response
+        return JsonResponse(json_data, safe=False)
+    return JsonResponse({"error": "Invalid request"}, status=400)
+
+
+@csrf_exempt
 def handle_cleanups(request):
     if request.method == "POST":
         data = json.loads(request.body)
         gaps_to_mean = request.POST.get("gaps_to_mean", "[]")
-        gaps_to_drop = request.POST.get("gaps_to_mean", "[]")
+        gaps_to_drop = request.POST.get("gaps_to_drop", "[]")
         gaps_to_placeholder_dict = data.get("gaps_to_placeholder_dict", {})
         rows_to_drop = request.POST.get("rows_to_drop", [])
         outlier_dict_placeholder = data.get("outlier_dict_placeholder", {})
