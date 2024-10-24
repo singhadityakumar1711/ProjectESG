@@ -239,16 +239,25 @@ def global_placeholder(request):
 @csrf_exempt
 def handle_cleanups(request):
     if request.method == "POST":
-        data = json.loads(request.body)
-        gaps_to_mean = request.POST.get("gaps_to_mean", "[]")
-        gaps_to_drop = request.POST.get("gaps_to_drop", "[]")
+        print(f"Request body: {request.body.decode('utf-8')}")  # Log the raw request body
+        if not request.body:
+            return JsonResponse({'error': 'Empty request body'}, status=400)
+
+        try:
+            data = json.loads(request.body.decode('utf-8'))
+        except json.JSONDecodeError as e:
+            return JsonResponse({'error': 'Invalid JSON data', 'message': str(e)}, status=400)
+        # data = json.loads(request.body)
+        gaps_to_mean = data.get("gaps_to_mean", "[]")
+        gaps_to_drop = data.get("gaps_to_drop", "[]")
         gaps_to_placeholder_dict = data.get("gaps_to_placeholder_dict", {})
-        rows_to_drop = request.POST.get("rows_to_drop", [])
+        rows_to_drop = data.get("rows_to_drop", [])
         outlier_dict_placeholder = data.get("outlier_dict_placeholder", {})
         outlier_dict_mean = data.get("outlier_dict_mean", {})
         array_2d = data.get("array_2d", [])
 
         df = pd.DataFrame(array_2d)
+        print(df.head(20))
         df = replace_gaps_with_mean(gaps_to_mean, df)
         df = drop_rows_by_index(gaps_to_drop, df)
         df = replace_with_placeholder(gaps_to_placeholder_dict, df)
