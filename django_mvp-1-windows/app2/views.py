@@ -156,19 +156,25 @@ def replace_gaps_with_mean(row_index, dataframe):
     # Select the row by index
     row = dataframe.iloc[row_index]
 
-    # Calculate the mean of the row, excluding NaN values
-    mean_value = row.mean()
+    # Calculate the mean of the specified column range (6 to 17), excluding NaN values
+    mean_value = row.iloc[6:18].mean()
 
-    # Replace NaN values in the row with the mean value
-    dataframe.iloc[row_index] = row.fillna(mean_value)
+    # Replace NaN values in the specified column range with the calculated mean
+    row.iloc[6:18] = row.iloc[6:18].fillna(mean_value)
+
+    # Update the row in the dataframe
+    dataframe.iloc[row_index] = row
 
     return dataframe
 
 
 # DROP ROWS
 def drop_rows_by_index(row_index, dataframe):
-    # Drop the specified row(s) using the index
-    dataframe = dataframe.drop(row_index)
+    # Convert positional indices to actual index labels
+    index_labels = dataframe.index[row_index]
+
+    # Drop the specified rows using index labels
+    dataframe = dataframe.drop(index_labels)
 
     # Return the updated dataframe
     return dataframe
@@ -178,6 +184,7 @@ def drop_rows_by_index(row_index, dataframe):
 def replace_with_placeholder(placeholder_dict, dataframe):
     # Iterate over each row index in the placeholder_dict
     for row_index, col_val_dict in placeholder_dict.items():
+        row_index = int(row_index)
         # For each row, iterate over the columns and their corresponding replacement values
         for col_index, new_value in col_val_dict.items():
             # Replace the value at (row_index, col_index) with new_value
@@ -190,18 +197,24 @@ def replace_with_placeholder(placeholder_dict, dataframe):
 # REPLACE OUTLIERS WITH MEAN
 def replace_outliers_with_mean(outlier_dict_mean, dataframe):
     for row_index, col_indices in outlier_dict_mean.items():
-        # Get the row at the given index
-        row = dataframe.iloc[row_index]
+        # Get the row at the given index and focus on columns 6 to 17
+        row_index = int(row_index)
+        row = dataframe.iloc[row_index, 6:18]
 
-        # Exclude the outlier columns from the row to calculate the mean
-        non_outlier_values = row.drop(labels=col_indices)
+        print("ROW :----------", row)
+
+        # Convert column labels to integer positions for `iat`
+        col_positions = [dataframe.columns.get_loc(col) for col in col_indices]
+
+        # Exclude the outlier columns to calculate the mean
+        non_outlier_values = row.drop(labels=col_positions)
 
         # Calculate the mean of the non-outlier values
         mean_value = non_outlier_values.mean()
-
+        print("Mean:-------", mean_value)
         # Replace outlier values with the mean value in the specified columns
-        for col_index in col_indices:
-            dataframe.iat[row_index, dataframe.columns.get_loc(col_index)] = mean_value
+        for col_pos in col_positions:
+            dataframe.iat[row_index, col_pos] = mean_value
 
     return dataframe
 
@@ -239,42 +252,105 @@ def global_placeholder(request):
 @csrf_exempt
 def handle_cleanups(request):
     if request.method == "POST":
-        print(f"Request body: {request.body.decode('utf-8')}")  # Log the raw request body
+        # print(f"Request body: {request.body.decode('utf-8')}")  # Log the raw request body
         if not request.body:
-            return JsonResponse({'error': 'Empty request body'}, status=400)
+            return JsonResponse({"error": "Empty request body"}, status=400)
 
         try:
-            data = json.loads(request.body.decode('utf-8'))
+            data = json.loads(request.body.decode("utf-8"))
         except json.JSONDecodeError as e:
-            return JsonResponse({'error': 'Invalid JSON data', 'message': str(e)}, status=400)
+            return JsonResponse(
+                {"error": "Invalid JSON data", "message": str(e)}, status=400
+            )
         # data = json.loads(request.body)
         gaps_to_mean = data.get("gaps_to_mean", "[]")
-        gaps_to_drop = data.get("gaps_to_drop", "[]")
         gaps_to_placeholder_dict = data.get("gaps_to_placeholder_dict", {})
-        rows_to_drop = data.get("rows_to_drop", [])
         outlier_dict_placeholder = data.get("outlier_dict_placeholder", {})
         outlier_dict_mean = data.get("outlier_dict_mean", {})
+        rows_to_drop = data.get("rows_to_drop", [])
+        gaps_to_drop = data.get("gaps_to_drop", "[]")
         array_2d = data.get("array_2d", [])
 
         df = pd.DataFrame(array_2d)
-        print(df.head(20))
+        # print(df.head(20))
         df = replace_gaps_with_mean(gaps_to_mean, df)
-        df = drop_rows_by_index(gaps_to_drop, df)
         df = replace_with_placeholder(gaps_to_placeholder_dict, df)
-        df = drop_rows_by_index(rows_to_drop, df)
         df = replace_with_placeholder(outlier_dict_placeholder, df)
         df = replace_outliers_with_mean(outlier_dict_mean, df)
+        df = drop_rows_by_index(gaps_to_drop, df)
+        df = drop_rows_by_index(rows_to_drop, df)
+        # df = df.reset_index()
 
         connection = sqlite3.connect("GHG_DATA")
+        duplicates = df.columns.duplicated()
+        if duplicates.any():
+            print("Found duplicate column names:", df.columns[duplicates])
+        else:
+            print("NO DUPLICATES")
+
+        print(df.columns)
+        print(df.head(1))
+        # df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
+        df = df.iloc[:, :-3]
+        df.columns = [
+            "Emission_Scope",
+            "Location",
+            "Category",
+            "Type",
+            "Unit",
+            "Year",
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "May",
+            "Jun",
+            "Jul",
+            "Aug",
+            "Sep",
+            "Oct",
+            "Nov",
+            "Dec",
+            "Value",
+            "Source",
+            "_2023_Market_based_tCO2e",
+            "Emission_factor",
+            "Unit_Emission_factor",
+        ]
         df.to_sql("GHG_DATA", connection, if_exists="replace")
         connection.commit()
         connection.close()
 
         connection = sqlite3.connect("GHG_DATA")
+        query1 = f"""WITH Summary as(
+SELECT Year, SUM(Value) as Total_emissions, LAG(SUM(Value)) OVER(ORDER BY YEAR) as Prev_emission_total FROM ghg_data
+GROUP BY Year)
+SELECT *, CAST(ROUND((Total_emissions - Prev_emission_total)*100.0/Prev_emission_total, 3) AS VARCHAR)+'%' as Perc_change from Summary"""
 
+        no_of_employees = 2200
+        total_revenue = 3333
+        query2 = f"""
+WITH cte1 as(
+SELECT Year, SUM(Value) as Total_emissions, LAG(SUM(Value)) OVER(ORDER BY YEAR) as Prev_emission_total FROM ghg_data
+GROUP BY Year),
+cte2 as(
+SELECT *, CAST(ROUND((Total_emissions - Prev_emission_total)*100.0/Prev_emission_total, 3) AS VARCHAR)+'%' as Perc_change from cte1)
+SELECT *, Total_emissions/{no_of_employees} as Emissions_per_employee, Total_emissions/{total_revenue} as Emission_per_USD
+FROM cte2;"""
+
+        query3 = f"""WITH cte1 as(
+SELECT Emission_Scope, Year, SUM(Value) as Emissions, LAG(SUM(Value)) OVER(PARTITION BY Emission_Scope ORDER BY Year) AS Emission_change FROM
+ghg_data GROUP BY Emission_Scope, Year)
+SELECT *, CAST(ROUND((Emissions-Emission_change)*100.0/Emission_change, 2) AS VARCHAR)+'%' FROM cte1;"""
+        
+        df = pd.read_sql_query("SELECT * FROM GHG_DATA", con = connection)
         # Fetch the dataframe
-        df = pd.read_sql_query("SELECT * FROM GHG_DATA", connection)
-
+        df1 = pd.read_sql_query(query1, connection)
+        print(df1.head(10))
+        df2 = pd.read_sql_query(query2, connection)
+        print(df2.head(10))
+        df3 = pd.read_sql_query(query3, connection)
+        print(df3.head(10))
         # Convert dataframe to JSON
         json_data = df.to_json(orient="records")
 
