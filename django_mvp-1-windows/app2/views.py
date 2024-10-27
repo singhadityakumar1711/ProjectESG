@@ -273,12 +273,18 @@ def handle_cleanups(request):
 
         df = pd.DataFrame(array_2d)
         # print(df.head(20))
-        df = replace_gaps_with_mean(gaps_to_mean, df)
-        df = replace_with_placeholder(gaps_to_placeholder_dict, df)
-        df = replace_with_placeholder(outlier_dict_placeholder, df)
-        df = replace_outliers_with_mean(outlier_dict_mean, df)
-        df = drop_rows_by_index(gaps_to_drop, df)
-        df = drop_rows_by_index(rows_to_drop, df)
+        if gaps_to_mean:
+            df = replace_gaps_with_mean(gaps_to_mean, df)
+        if gaps_to_placeholder_dict:
+            df = replace_with_placeholder(gaps_to_placeholder_dict, df)
+        if outlier_dict_mean:
+            df = replace_with_placeholder(outlier_dict_placeholder, df)
+        if outlier_dict_mean:
+            df = replace_outliers_with_mean(outlier_dict_mean, df)
+        if gaps_to_drop:
+            df = drop_rows_by_index(gaps_to_drop, df)
+        if rows_to_drop:
+            df = drop_rows_by_index(rows_to_drop, df)
         # df = df.reset_index()
 
         connection = sqlite3.connect("GHG_DATA")
